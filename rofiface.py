@@ -8,31 +8,27 @@ import subprocess
 import random
 from xml.sax.saxutils import escape
 
-### JSON I/O for Firefox FFI from Mozilla websites
+# Python 3.x version
 # Read a message from stdin and decode it.
-def get_message():
-    raw_length = sys.stdin.buffer.read(4)
-
-    if not raw_length:
+def getMessage():
+    rawLength = sys.stdin.buffer.read(4)
+    if len(rawLength) == 0:
         sys.exit(0)
-    message_length = struct.unpack('=I', raw_length)[0]
-    message = sys.stdin.buffer.read(message_length).decode("utf-8")
+    messageLength = struct.unpack('@I', rawLength)[0]
+    message = sys.stdin.buffer.read(messageLength).decode('utf-8')
     return json.loads(message)
 
+# Encode a message for transmission,
+# given its content.
+def encodeMessage(messageContent):
+    encodedContent = json.dumps(messageContent).encode('utf-8')
+    encodedLength = struct.pack('@I', len(encodedContent))
+    return {'length': encodedLength, 'content': encodedContent}
 
-# Encode a message for transmission, given its content.
-def encode_message(message_content):
-    encoded_content = json.dumps(message_content).encode("utf-8")
-    encoded_length = struct.pack('=I', len(encoded_content))
-    #return {'length': encoded_length, 'content': encoded_content}
-    # use struct.pack("10s", bytes), to pack a string of the length of 10 characters
-    return {'length': encoded_length, 'content': struct.pack(str(len(encoded_content))+"s",encoded_content)}
-
-
-# Send an encoded message to stdout.
-def send_message(encoded_message):
-    sys.stdout.buffer.write(encoded_message['length'])
-    sys.stdout.buffer.write(encoded_message['content'])
+# Send an encoded message to stdout
+def sendMessage(encodedMessage):
+    sys.stdout.buffer.write(encodedMessage['length'])
+    sys.stdout.buffer.write(encodedMessage['content'])
     sys.stdout.buffer.flush()
 
 
@@ -50,14 +46,22 @@ def get_color(id):
 
 ### main loop
 while True:
-    message = get_message()
+    message = getMessage()
     
     # spawn rofi and get selection
     rofi = subprocess.Popen("rofi -dmenu -i -scroll-method 1 -format i -p 'Go to tab' -markup-rows -no-custom -selected-row %d|head -n 1"%(message['active']), shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     out,err = rofi.communicate(u''.join(map(lambda tab:u"<span color='%s'>(%d)</span>\t%s <span alpha='50%%'>%s</span>\n"%(get_color(tab['window']),tab['window'],escape(tab['title']),escape(tab['url'])),message['tabs'])).encode('utf-8'))
-    
-    # if anything was selected, tell browser side to switch to that tab
-    if out != "":
-        send_message(encode_message(message['tabs'][int(out)]['id']))
 
+    if out == b"":
+        continue
+    
+    try:
+      selected = int(out)
+    except ValueError:
+      # somehow not an int?! :(
+      # sys.exit(0)
+      continue
+
+    selected_tab_id = message['tabs'][selected]['id']
+    sendMessage(encodeMessage(selected_tab_id))
 
